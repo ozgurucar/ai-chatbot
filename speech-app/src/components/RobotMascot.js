@@ -143,29 +143,63 @@ export default function RobotMascotChat() {
 
   // Kullanıcı mesajı ekle ve robotu cevapla
 const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || !currentUser) return;
-    const userMsg = input.trim();
+  e.preventDefault();
+  if (!input.trim() || !currentUser) return;
+  const userMsg = input.trim();
 
-    await addDoc(collection(db, "messages"), {
-      from: "user",
-      text: userMsg,
-      uid: currentUser.uid,
-      timestamp: serverTimestamp()
-    });
-    setInput("");
+  // 1. Kullanıcı mesajını DB'ye ekle
+  await addDoc(collection(db, "messages"), {
+    from: "user",
+    text: userMsg,
+    uid: currentUser.uid,
+    timestamp: serverTimestamp()
+  });
+  setInput("");
 
-    setTimeout(async () => {
-      const botText = userMsg;
-      await addDoc(collection(db, "messages"), {
-        from: "bot",
-        text: botText,
-        uid: currentUser.uid,
-        timestamp: serverTimestamp()
-      });
-      speakAndAnimate(botText);
-    }, 600);
-  };
+  // 2. Grok'a (veya başka bir LLM'e) istek at
+// 2. Groq'a istek at
+let botText = "Cevap alınamadı.";
+try {
+const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": process.env.REACT_APP_qroq_API_KEY
+  },
+  body: JSON.stringify({
+    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+    messages: [
+      {
+        role: "system",
+        content: `
+Sen bir KoçSistem dijital asistanısın.
+Sadece KoçSistem'in verdiği hizmetler, ürünler ve kurumsal kültürü hakkında bilgi ver.
+Kurumsal ve yardımsever bir dil kullan, asla başka bir markayı övme veya kötüleme.
+Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
+`
+      },
+      {
+        role: "user",
+        content: userMsg
+      }
+      ]
+    }),
+  });
+  const data = await response.json();
+  botText = data.choices?.[0]?.message?.content || "Cevap alınamadı.";
+} catch (err) {
+  botText = "Bot bir hata ile karşılaştı: " + (err.message || String(err));
+}
+
+  // 3. Bot cevabını DB'ye ekle ve konuştur
+  await addDoc(collection(db, "messages"), {
+    from: "bot",
+    text: botText,
+    uid: currentUser.uid,
+    timestamp: serverTimestamp()
+  });
+  speakAndAnimate(botText);
+};
   // Unmount olunca sesi kapat
   useEffect(() => {
     return () => {
