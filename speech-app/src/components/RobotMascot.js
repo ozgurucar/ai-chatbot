@@ -1,9 +1,12 @@
 import React, { useRef, useState, useEffect } from "react";
 import robotImage from "./assets/robot.png";
 import { db } from "../firebase";
-import { onAuthStateChanged } from "firebase/auth"; 
+import { onAuthStateChanged } from "firebase/auth";
 import { getAuth, signOut } from "firebase/auth";
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, where } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
+import UserDetailsForm from "./UserDetailsForm";
+import { useNavigate } from "react-router-dom";
 
 
 // --- Maskotun ağız oranları (PNG'ye göre ayarla!) ---
@@ -14,27 +17,31 @@ const MOUTH_PROP = {
   height: 0.09, // ağız yüksekliği oranı
 };
 
+
+
 const auth = getAuth();
 function handleLogout() { signOut(auth); }
 
 function getMouth(open) {
   return open ? (
     <g>
-      <rect x="4" y="7" width="30" height="12" rx="7" fill="#3c4152" stroke="#a0e7f5" strokeWidth="2"/>
-      <ellipse cx="19" cy="13" rx="12" ry="5" fill="#b8f6ff" opacity="0.6"/>
-      <rect x="10" y="13" width="18" height="4" rx="2" fill="#3df57a" opacity="0.7"/>
-      <rect x="12" y="15" width="4" height="2" rx="1" fill="#e7ffe2"/>
-      <rect x="22" y="15" width="4" height="2" rx="1" fill="#e7ffe2"/>
+      <rect x="4" y="7" width="30" height="12" rx="7" fill="#3c4152" stroke="#a0e7f5" strokeWidth="2" />
+      <ellipse cx="19" cy="13" rx="12" ry="5" fill="#b8f6ff" opacity="0.6" />
+      <rect x="10" y="13" width="18" height="4" rx="2" fill="#3df57a" opacity="0.7" />
+      <rect x="12" y="15" width="4" height="2" rx="1" fill="#e7ffe2" />
+      <rect x="22" y="15" width="4" height="2" rx="1" fill="#e7ffe2" />
     </g>
   ) : (
     <g>
-      <rect x="7" y="16" width="24" height="4" rx="2" fill="#2d3141" stroke="#8acfd7" strokeWidth="1"/>
-      <ellipse cx="19" cy="18" rx="11" ry="2" fill="#b8f6ff" opacity="0.25"/>
+      <rect x="7" y="16" width="24" height="4" rx="2" fill="#2d3141" stroke="#8acfd7" strokeWidth="1" />
+      <ellipse cx="19" cy="18" rx="11" ry="2" fill="#b8f6ff" opacity="0.25" />
     </g>
   );
 }
 
 export default function RobotMascotChat() {
+  const navigate = useNavigate();
+  const [showMenu, setShowMenu] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [input, setInput] = useState("");
   const [mouthOpen, setMouthOpen] = useState(false);
@@ -69,7 +76,33 @@ export default function RobotMascotChat() {
   }, [currentUser]);
 
 
-// --- Firestore'dan mesajları çek (component mount olduğunda) ---
+
+
+const [photoURL, setPhotoURL] = useState("");
+
+useEffect(() => {
+  if (!currentUser) return;
+
+  const fetchProfilePicture = async () => {
+    try {
+      const docRef = doc(db, "userdetails", currentUser.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.profilePicture) {
+          setPhotoURL(data.profilePicture);
+        }
+      }
+    } catch (error) {
+      console.error("Profil fotoğrafı çekilemedi:", error);
+    }
+  };
+
+  fetchProfilePicture();
+}, [currentUser]);
+
+
+  // --- Firestore'dan mesajları çek (component mount olduğunda) ---
 
 
   const synthRef = useRef(null);
@@ -142,64 +175,64 @@ export default function RobotMascotChat() {
   };
 
   // Kullanıcı mesajı ekle ve robotu cevapla
-const handleSend = async (e) => {
-  e.preventDefault();
-  if (!input.trim() || !currentUser) return;
-  const userMsg = input.trim();
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!input.trim() || !currentUser) return;
+    const userMsg = input.trim();
 
-  // 1. Kullanıcı mesajını DB'ye ekle
-  await addDoc(collection(db, "messages"), {
-    from: "user",
-    text: userMsg,
-    uid: currentUser.uid,
-    timestamp: serverTimestamp()
-  });
-  setInput("");
+    // 1. Kullanıcı mesajını DB'ye ekle
+    await addDoc(collection(db, "messages"), {
+      from: "user",
+      text: userMsg,
+      uid: currentUser.uid,
+      timestamp: serverTimestamp()
+    });
+    setInput("");
 
-  // 2. Grok'a (veya başka bir LLM'e) istek at
-// 2. Groq'a istek at
-let botText = "Cevap alınamadı.";
-try {
-const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": process.env.REACT_APP_qroq_API_KEY
-  },
-  body: JSON.stringify({
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",
-    messages: [
-      {
-        role: "system",
-        content: `
+    // 2. Grok'a (veya başka bir LLM'e) istek at
+    // 2. Groq'a istek at
+    let botText = "Cevap alınamadı.";
+    try {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": process.env.REACT_APP_qroq_API_KEY
+        },
+        body: JSON.stringify({
+          model: "meta-llama/llama-4-scout-17b-16e-instruct",
+          messages: [
+            {
+              role: "system",
+              content: `
 Sen bir KoçSistem dijital asistanısın.
 Sadece KoçSistem'in verdiği hizmetler, ürünler ve kurumsal kültürü hakkında bilgi ver.
 Kurumsal ve yardımsever bir dil kullan, asla başka bir markayı övme veya kötüleme.
 Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
 `
-      },
-      {
-        role: "user",
-        content: userMsg
-      }
-      ]
-    }),
-  });
-  const data = await response.json();
-  botText = data.choices?.[0]?.message?.content || "Cevap alınamadı.";
-} catch (err) {
-  botText = "Bot bir hata ile karşılaştı: " + (err.message || String(err));
-}
+            },
+            {
+              role: "user",
+              content: userMsg
+            }
+          ]
+        }),
+      });
+      const data = await response.json();
+      botText = data.choices?.[0]?.message?.content || "Cevap alınamadı.";
+    } catch (err) {
+      botText = "Bot bir hata ile karşılaştı: " + (err.message || String(err));
+    }
 
-  // 3. Bot cevabını DB'ye ekle ve konuştur
-  await addDoc(collection(db, "messages"), {
-    from: "bot",
-    text: botText,
-    uid: currentUser.uid,
-    timestamp: serverTimestamp()
-  });
-  speakAndAnimate(botText);
-};
+    // 3. Bot cevabını DB'ye ekle ve konuştur
+    await addDoc(collection(db, "messages"), {
+      from: "bot",
+      text: botText,
+      uid: currentUser.uid,
+      timestamp: serverTimestamp()
+    });
+    speakAndAnimate(botText);
+  };
   // Unmount olunca sesi kapat
   useEffect(() => {
     return () => {
@@ -295,7 +328,76 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
   };
 
   return (
+
     <div style={containerStyle}>
+      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 99 }}>
+        <img
+          src={photoURL || currentUser?.photoURL || "https://ui-avatars.com/api/?name=User"}
+          alt="avatar"
+          onClick={() => setShowMenu(!showMenu)}
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: "50%",
+            cursor: "pointer",
+            border: "2px solid #00cfff",
+            boxShadow: "0 0 8px #00cfff88",
+          }}
+        />
+        {showMenu && (
+          <div style={{
+            marginTop: 8,
+            background: "#1f2333",
+            borderRadius: 10,
+            padding: 10,
+            boxShadow: "0 0 12px #0006",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 6,
+            position: "absolute",
+            right: 0,
+            top: 48,
+            minWidth: 140,
+          }}>
+            <button
+              onClick={() => {
+                navigate("/profile");
+                setShowMenu(false);
+              }}
+              style={{
+                background: "none",
+                color: "#fff",
+                border: "none",
+                padding: "6px 10px",
+                cursor: "pointer",
+                width: "100%",
+                textAlign: "left",
+              }}
+            >
+              Profilim
+            </button>
+            <button
+              onClick={() => {
+                handleLogout();
+                setShowMenu(false);
+              }}
+              style={{
+                background: "none",
+                color: "#ffb3b3",
+                border: "none",
+                padding: "6px 10px",
+                cursor: "pointer",
+                width: "100%",
+                textAlign: "left",
+              }}
+            >
+              Çıkış Yap
+            </button>
+          </div>
+        )}
+      </div>
+
       <div style={cardStyle}>
         <div style={{ position: "relative", marginBottom: 22, width: "clamp(160px, 34vw, 260px)" }}>
           <img

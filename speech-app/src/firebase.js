@@ -3,6 +3,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
+
 // Buraya kendi firebaseConfig'ini koy
 console.log(process.env.REACT_APP_FBASE_API_KEY);
 const firebaseConfig = {
