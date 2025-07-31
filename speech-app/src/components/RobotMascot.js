@@ -6,13 +6,11 @@ import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
 import {
   collection, addDoc, serverTimestamp,
   query, orderBy, onSnapshot, where,
-  doc, getDoc, setDoc
+  doc, getDoc
 } from "firebase/firestore";
 import {
   getAuth,
   onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
   signOut
 } from "firebase/auth";
 
@@ -60,7 +58,7 @@ export default function RobotMascotChat() {
   const [mouthOpen, setMouthOpen] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState([
-    { from: "bot", text: "Merhaba! Ben KoSistem robot maskotuyum. Size nasıl yardımcı olabilirim?" }
+    { from: "bot", text: "Merhaba! Ben KoçSistem robot maskotuyum. Size nasıl yardımcı olabilirim?" }
   ]);
 
 
@@ -73,6 +71,12 @@ export default function RobotMascotChat() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    // Eğer seçili bir chat yoksa ve chat listesinde en az bir chat varsa, ilkini seç
+    if (!selectedChatId && chats.length > 0) {
+      setSelectedChatId(chats[0].id);
+    }
+  }, [chats, selectedChatId]);
 
   // Mikrofonu başlatır
   const startListening = () => {
@@ -137,22 +141,15 @@ export default function RobotMascotChat() {
     };
   }, [recognizer]);
 
- const createNewChat = async () => {
-  if (!currentUser) return;
-
-  // Prompt ile başlık iste
-  const title = prompt("Sohbetin adı ne olsun?");
-
-  if (!title || !title.trim()) return; // iptal ettiyse veya boşsa eklemesin
-
-  const chatRef = await addDoc(collection(db, "chats"), {
-    uid: currentUser.uid,
-    title: title.trim(),
-    createdAt: serverTimestamp()
-  });
-
-  setSelectedChatId(chatRef.id);
-};
+  const createNewChatWithTitle = async (title) => {
+    if (!currentUser) return null;
+    const chatRef = await addDoc(collection(db, "chats"), {
+      uid: currentUser.uid,
+      title: title,
+      createdAt: serverTimestamp()
+    });
+    return chatRef.id;
+  };
 
   useEffect(() => {
     if (!currentUser) return;
@@ -179,21 +176,25 @@ export default function RobotMascotChat() {
   }, [currentUser, selectedChatId]);
 
 
-  useEffect(() => {
-    if (!selectedChatId) return;
+useEffect(() => {
+  if (!selectedChatId || selectedChatId === "NEW") {
+    setMessages([]); // yeni sohbet ekranı için mesajları temizle
+    return;
+  }
+  // normalde olduğu gibi firestore'dan mesajları çek
+  const q = query(
+    collection(db, "chats", selectedChatId, "messages"),
+    orderBy("timestamp", "asc")
+  );
 
-    const q = query(
-      collection(db, "chats", selectedChatId, "messages"),
-      orderBy("timestamp", "asc")
-    );
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const msgs = snapshot.docs.map((doc) => doc.data());
+    setMessages(msgs);
+  });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map((doc) => doc.data());
-      setMessages(msgs);
-    });
+  return unsubscribe;
+}, [selectedChatId]);
 
-    return unsubscribe;
-  }, [selectedChatId]);
 
   const [photoURL, setPhotoURL] = useState("");
 
@@ -294,14 +295,22 @@ export default function RobotMascotChat() {
   // Kullanıcı mesajı ekle ve robotu cevapla
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!input.trim() || !currentUser || !selectedChatId) return;
+    if (!input.trim() || !currentUser) return;
 
     const userMsg = input.trim();
     setInput("");
 
-    // 1. Kullanıcı mesajını Firestore'a ekle
+    let chatIdToUse = selectedChatId;
+    // Eğer yeni sohbetse
+    if (!chatIdToUse || chatIdToUse === "NEW") {
+      let title = userMsg.length > 40 ? userMsg.slice(0, 40) + "..." : userMsg;
+      chatIdToUse = await createNewChatWithTitle(title);
+      setSelectedChatId(chatIdToUse); // burası gerçek chat id'yi günceller
+    }
+
+    // Mesajı yeni chat'e ekle
     try {
-      await addDoc(collection(db, "chats", selectedChatId, "messages"), {
+      await addDoc(collection(db, "chats", chatIdToUse, "messages"), {
         from: "user",
         text: userMsg,
         timestamp: serverTimestamp()
@@ -311,7 +320,7 @@ export default function RobotMascotChat() {
       return;
     }
 
-    // 2. Bot cevabı için LLM API çağrısı
+    // Bot cevabı için LLM API çağrısı
     let botText = "Cevap alınamadı.";
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -347,9 +356,9 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
       console.error("Bot API hatası:", err);
     }
 
-    // 3. Bot mesajını Firestore'a ekle ve seslendir
+    // Bot mesajını Firestore'a ekle (chatIdToUse!)
     try {
-      await addDoc(collection(db, "chats", selectedChatId, "messages"), {
+      await addDoc(collection(db, "chats", chatIdToUse, "messages"), {
         from: "bot",
         text: botText,
         timestamp: serverTimestamp()
@@ -370,13 +379,19 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
   // UI stil kodları
   const containerStyle = {
     width: "100vw",
-    minHeight: "100vh",
+    height: "100vh",
+    margin: 0,
+    padding: 0,
     background: "linear-gradient(120deg, #27293d 0%, #0f2027 100%)",
     display: "flex",
+    overflow: "hidden",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: 0,
+    boxSizing: "border-box",
+    position: "fixed", // Bu satırı ekleyin
+    top: 0,
+    left: 0,
   };
 
   const cardStyle = {
@@ -384,7 +399,9 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
     borderRadius: 28,
     boxShadow: "0 4px 32px #0005",
     padding: "32px 24px 24px 24px",
-    width: "min(96vw, 420px)",
+    maxWidth: "96%",
+    width: 420,
+    minWidth: 320,
     marginTop: 16,
     display: "flex",
     flexDirection: "column",
@@ -393,7 +410,8 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
 
   const chatListStyle = {
     width: "100%",
-    maxHeight: 260,
+    maxHeight: "260px",
+    minHeight: "180px",
     overflowY: "auto",
     marginBottom: 20,
     display: "flex",
@@ -524,7 +542,7 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
           </div>
         )}
       </div>
-      <div style={{ display: "flex", width: "100vw", height: "100vh" }}>
+      <div style={{ display: "flex", width: "100%", height: "100vh", margin: 0, padding: 0 }}>
         <div style={{
           width: 260,
           background: "#1f2333",
@@ -534,9 +552,11 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
           gap: 8,
           borderRight: "1px solid #333",
           height: "100vh",
-          overflowY: "auto"
+          overflowY: "auto",
+          boxSizing: "border-box"
         }}>
-          <button onClick={createNewChat} style={{ marginBottom: 12 }}>➕ Yeni Sohbet</button>
+          <button onClick={() => setSelectedChatId("NEW")} style={{ marginBottom: 12 }}>➕ Yeni Sohbet</button>
+
           {chats.map(chat => (
             <button
               key={chat.id}
@@ -557,10 +577,10 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
           ))}
         </div>
 
-        <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
           {/* Buraya mevcut chat içerik kartını koy */}
           {<div style={cardStyle}>
-            <div style={{ position: "relative", marginBottom: 22, width: "clamp(160px, 34vw, 260px)" }}>
+            <div style={{ position: "relative", marginBottom: 22, width: "clamp(160px, 34%, 260px)" }}>
               <img
                 ref={maskotRef}
                 src={robotImage}
@@ -579,11 +599,14 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
               </svg>
             </div>
             <div style={chatListStyle}>
-              {messages.map((msg, i) =>
-                <div key={i} style={msg.from === "bot" ? balloonBot : balloonUser}>
-                  {msg.text}
-                </div>
-              )}
+              {selectedChatId === "NEW"
+                ? null // veya boş mesaj
+                : messages.map((msg, i) =>
+                  <div key={i} style={msg.from === "bot" ? balloonBot : balloonUser}>
+                    {msg.text}
+                  </div>
+                )
+              }
             </div>
             <form onSubmit={handleSend} style={inputRowStyle} autoComplete="off">
               <input

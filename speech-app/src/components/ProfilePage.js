@@ -23,7 +23,7 @@ export default function ProfilePage() {
             if (!user) return;
             const ref = doc(db, "userdetails", user.uid);
             const snap = await getDoc(ref);
-            if (snap.exists()) setForm(prev => ({...prev, ...snap.data()}));
+            if (snap.exists()) setForm(prev => ({ ...prev, ...snap.data() }));
         };
         fetchData();
     }, [user]);
@@ -59,12 +59,15 @@ export default function ProfilePage() {
 
     // --- Styles ---
     const container = {
-        minHeight: "100vh",
+        height: "100vh",
         width: "100vw",
+        margin: 0,
+        padding: 0,
         background: "linear-gradient(120deg, #23273a 0%, #0f2027 100%)",
         display: "flex",
         alignItems: "center",
-        justifyContent: "center"
+        justifyContent: "center",
+        boxSizing: "border-box",
     };
 
     const card = {
@@ -186,6 +189,13 @@ export default function ProfilePage() {
                         value={form.address}
                         onChange={handleChange}
                     />
+                    <div style={{
+                        color: "#1cd7fa",
+                        marginTop: 16,
+                        fontWeight: 500,
+                    }}>
+                        {<p>Profil Fotoğrafı</p>}
+                    </div>
                     <input
                         style={{ ...inputStyle, padding: 0, background: "none", color: "#7ee9fa", marginBottom: 19, border: "none" }}
                         type="file"
