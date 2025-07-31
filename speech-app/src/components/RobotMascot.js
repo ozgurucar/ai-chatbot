@@ -1,12 +1,21 @@
 import React, { useRef, useState, useEffect } from "react";
 import robotImage from "./assets/robot.png";
 import { db } from "../firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import { getAuth, signOut } from "firebase/auth";
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, where } from "firebase/firestore";
-import { doc, getDoc } from "firebase/firestore";
-import UserDetailsForm from "./UserDetailsForm";
 import { useNavigate } from "react-router-dom";
+import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
+import {
+  collection, addDoc, serverTimestamp,
+  query, orderBy, onSnapshot, where,
+  doc, getDoc, setDoc
+} from "firebase/firestore";
+import {
+  getAuth,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
+
 
 
 // --- Maskotun ağız oranları (PNG'ye göre ayarla!) ---
@@ -41,14 +50,21 @@ function getMouth(open) {
 
 export default function RobotMascotChat() {
   const navigate = useNavigate();
+  const [chats, setChats] = useState([]);
+  const [selectedChatId, setSelectedChatId] = useState(null);
   const [showMenu, setShowMenu] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [input, setInput] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [recognizer, setRecognizer] = useState(null);
   const [mouthOpen, setMouthOpen] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState([
     { from: "bot", text: "Merhaba! Ben KoSistem robot maskotuyum. Size nasıl yardımcı olabilirim?" }
   ]);
+
+
+
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -57,49 +73,144 @@ export default function RobotMascotChat() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const q = query(
-      collection(db, "messages"),
-      where("uid", "==", currentUser.uid),
-      orderBy("timestamp", "asc")
+
+  // Mikrofonu başlatır
+  const startListening = () => {
+    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
+      process.env.REACT_APP_AZURE_SPEECH_API_KEY, // anahtar
+      process.env.REACT_APP_AZURE_SPEECH_REGION// region
     );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => doc.data());
-      setMessages(
-        msgs.length === 0
-          ? [{ from: "bot", text: "Merhaba! Ben KoçSistem robot maskotuyum. Size nasıl yardımcı olabilirim?" }]
-          : msgs
-      );
-    });
-    return unsubscribe;
-  }, [currentUser]);
+    speechConfig.speechRecognitionLanguage = "tr-TR";
+    const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+    const rec = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
 
+    // Canlı olarak konuşmayı input’a yaz
+    rec.recognizing = (s, e) => {
+      setInput(e.result.text);
+    };
 
-
-
-const [photoURL, setPhotoURL] = useState("");
-
-useEffect(() => {
-  if (!currentUser) return;
-
-  const fetchProfilePicture = async () => {
-    try {
-      const docRef = doc(db, "userdetails", currentUser.uid);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.profilePicture) {
-          setPhotoURL(data.profilePicture);
-        }
+    // Konuşma tamamlandığında input’a tam sonucu yaz
+    rec.recognized = (s, e) => {
+      if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
+        setInput(e.result.text);
       }
-    } catch (error) {
-      console.error("Profil fotoğrafı çekilemedi:", error);
+    };
+
+    rec.canceled = (s, e) => {
+      setIsListening(false);
+      rec.stopContinuousRecognitionAsync();
+      setRecognizer(null);
+    };
+
+    rec.sessionStopped = (s, e) => {
+      setIsListening(false);
+      rec.stopContinuousRecognitionAsync();
+      setRecognizer(null);
+    };
+
+    rec.startContinuousRecognitionAsync();
+    setRecognizer(rec);
+    setIsListening(true);
+  };
+
+  // Mikrofonu durdurur
+  const stopListening = () => {
+    if (recognizer) {
+      recognizer.stopContinuousRecognitionAsync(() => {
+        setIsListening(false);
+        setRecognizer(null);
+      });
     }
   };
 
-  fetchProfilePicture();
-}, [currentUser]);
+  // Mikrofon butonu (toggle)
+  const handleMicClick = () => {
+    if (isListening) stopListening();
+    else startListening();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognizer) {
+        recognizer.close();
+      }
+    };
+  }, [recognizer]);
+
+  const createNewChat = async () => {
+    if (!currentUser) return;
+
+    const chatRef = await addDoc(collection(db, "chats"), {
+      uid: currentUser.uid,
+      title: "Yeni Sohbet",
+      createdAt: serverTimestamp()
+    });
+
+    setSelectedChatId(chatRef.id);
+  };
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const q = query(
+      collection(db, "chats"),
+      where("uid", "==", currentUser.uid),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const chatsData = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setChats(chatsData);
+
+      if (!selectedChatId && chatsData.length > 0) {
+        setSelectedChatId(chatsData[0].id);
+      }
+    });
+
+    return unsubscribe;
+  }, [currentUser, selectedChatId]);
+
+
+  useEffect(() => {
+    if (!selectedChatId) return;
+
+    const q = query(
+      collection(db, "chats", selectedChatId, "messages"),
+      orderBy("timestamp", "asc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map((doc) => doc.data());
+      setMessages(msgs);
+    });
+
+    return unsubscribe;
+  }, [selectedChatId]);
+
+  const [photoURL, setPhotoURL] = useState("");
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const fetchProfilePicture = async () => {
+      try {
+        const docRef = doc(db, "userdetails", currentUser.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.profilePicture) {
+            setPhotoURL(data.profilePicture);
+          }
+        }
+      } catch (error) {
+        console.error("Profil fotoğrafı çekilemedi:", error);
+      }
+    };
+
+    fetchProfilePicture();
+  }, [currentUser]);
 
 
   // --- Firestore'dan mesajları çek (component mount olduğunda) ---
@@ -177,20 +288,24 @@ useEffect(() => {
   // Kullanıcı mesajı ekle ve robotu cevapla
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!input.trim() || !currentUser) return;
-    const userMsg = input.trim();
+    if (!input.trim() || !currentUser || !selectedChatId) return;
 
-    // 1. Kullanıcı mesajını DB'ye ekle
-    await addDoc(collection(db, "messages"), {
-      from: "user",
-      text: userMsg,
-      uid: currentUser.uid,
-      timestamp: serverTimestamp()
-    });
+    const userMsg = input.trim();
     setInput("");
 
-    // 2. Grok'a (veya başka bir LLM'e) istek at
-    // 2. Groq'a istek at
+    // 1. Kullanıcı mesajını Firestore'a ekle
+    try {
+      await addDoc(collection(db, "chats", selectedChatId, "messages"), {
+        from: "user",
+        text: userMsg,
+        timestamp: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Kullanıcı mesajı kaydedilemedi:", err);
+      return;
+    }
+
+    // 2. Bot cevabı için LLM API çağrısı
     let botText = "Cevap alınamadı.";
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -218,19 +333,25 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
           ]
         }),
       });
+
       const data = await response.json();
       botText = data.choices?.[0]?.message?.content || "Cevap alınamadı.";
     } catch (err) {
       botText = "Bot bir hata ile karşılaştı: " + (err.message || String(err));
+      console.error("Bot API hatası:", err);
     }
 
-    // 3. Bot cevabını DB'ye ekle ve konuştur
-    await addDoc(collection(db, "messages"), {
-      from: "bot",
-      text: botText,
-      uid: currentUser.uid,
-      timestamp: serverTimestamp()
-    });
+    // 3. Bot mesajını Firestore'a ekle ve seslendir
+    try {
+      await addDoc(collection(db, "chats", selectedChatId, "messages"), {
+        from: "bot",
+        text: botText,
+        timestamp: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Bot mesajı kaydedilemedi:", err);
+    }
+
     speakAndAnimate(botText);
   };
   // Unmount olunca sesi kapat
@@ -397,51 +518,150 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
           </div>
         )}
       </div>
+      <div style={{ display: "flex", width: "100vw", height: "100vh" }}>
+        <div style={{
+          width: 260,
+          background: "#1f2333",
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          borderRight: "1px solid #333"
+        }}>
+          <button onClick={createNewChat} style={{ marginBottom: 12 }}>➕ Yeni Sohbet</button>
+          {chats.map(chat => (
+            <button
+              key={chat.id}
+              onClick={() => setSelectedChatId(chat.id)}
+              style={{
+                background: chat.id === selectedChatId ? "#00cfff" : "#2c2f4a",
+                color: "#fff",
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+                fontWeight: 500,
+              }}
+            >
+              {chat.title || "Adsız Sohbet"}
+            </button>
+          ))}
+        </div>
 
-      <div style={cardStyle}>
-        <div style={{ position: "relative", marginBottom: 22, width: "clamp(160px, 34vw, 260px)" }}>
-          <img
-            ref={maskotRef}
-            src={robotImage}
-            alt="robot"
-            style={{
-              display: "block",
-              width: "100%",
-              height: "auto",
-              borderRadius: 32,
-              boxShadow: "0 6px 22px #00b8e89c"
-            }}
-            onLoad={handleImgLoad}
-          />
-          <svg style={getMouthStyle()} viewBox="0 0 38 24">
-            {getMouth(mouthOpen)}
-          </svg>
-        </div>
-        <div style={chatListStyle}>
-          {messages.map((msg, i) =>
-            <div key={i} style={msg.from === "bot" ? balloonBot : balloonUser}>
-              {msg.text}
+        <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center" }}>
+          {/* Buraya mevcut chat içerik kartını koy */}
+          {<div style={cardStyle}>
+            <div style={{ position: "relative", marginBottom: 22, width: "clamp(160px, 34vw, 260px)" }}>
+              <img
+                ref={maskotRef}
+                src={robotImage}
+                alt="robot"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  height: "auto",
+                  borderRadius: 32,
+                  boxShadow: "0 6px 22px #00b8e89c"
+                }}
+                onLoad={handleImgLoad}
+              />
+              <svg style={getMouthStyle()} viewBox="0 0 38 24">
+                {getMouth(mouthOpen)}
+              </svg>
             </div>
-          )}
-        </div>
-        <form onSubmit={handleSend} style={inputRowStyle} autoComplete="off">
-          <input
-            type="text"
-            value={input}
-            placeholder="Bir mesaj yaz..."
-            onChange={e => setInput(e.target.value)}
-            style={inputStyle}
-            disabled={isSpeaking}
-          />
-          <button type="submit" style={sendBtnStyle} disabled={!input || isSpeaking}>
-            Gönder
-          </button>
-        </form>
-        <div style={{ color: "#7ee9fa", fontSize: 13, marginTop: 10 }}>
-          {isSpeaking ? "Maskot konuşuyor..." : "Hazır"}
-          <button style={sendBtnStyle} onClick={handleLogout}>Çıkış</button>
+            <div style={chatListStyle}>
+              {messages.map((msg, i) =>
+                <div key={i} style={msg.from === "bot" ? balloonBot : balloonUser}>
+                  {msg.text}
+                </div>
+              )}
+            </div>
+            <form onSubmit={handleSend} style={inputRowStyle} autoComplete="off">
+              <input
+                type="text"
+                value={input}
+                placeholder="Bir mesaj yaz..."
+                onChange={e => setInput(e.target.value)}
+                style={inputStyle}
+                disabled={isSpeaking}
+              />
+              <button type="submit" style={sendBtnStyle} disabled={!input || isSpeaking}>
+                Gönder
+              </button>
+            </form>
+
+
+            <div style={{ color: "#7ee9fa", fontSize: 13, marginTop: 10 }}>
+              {isSpeaking ? "Maskot konuşuyor..." : "Hazır"}
+
+              {isSpeaking ? (
+                <button
+                  onClick={() => {
+                    speechSynthesis.cancel();
+                    setIsSpeaking(false);
+                  }}
+                  style={{
+                    marginLeft: 10,
+                    padding: "2px 6px",
+                    cursor: "pointer",
+                    background: "#ff4d4d",
+                    border: "none",
+                    borderRadius: 4,
+                    color: "white",
+                  }}
+                >
+                  Durdur
+                </button>
+              ) : null}
+
+              <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 16 }}>
+                {/* Mikrofon Butonu */}
+                <button
+                  onClick={handleMicClick}
+                  style={{
+                    padding: "11px 14px",
+                    borderRadius: 18,
+                    border: "none",
+                    background: isListening ? "#ff4444" : "#00cfff",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontSize: 18,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {isListening ? "🎤 Dinleniyor..." : "🎤"}
+                </button>
+
+                {/* Çıkış Yap Butonu */}
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    padding: "11px 18px",
+                    fontSize: 16,
+                    borderRadius: 18,
+                    border: "none",
+                    background: "#ff0066",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }}
+                >
+                  Çıkış Yap
+                </button>
+              </div>
+            </div>
+
+
+          </div>}
         </div>
       </div>
+
+
+
     </div>
   );
 }

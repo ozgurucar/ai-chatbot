@@ -1,6 +1,8 @@
 // src/App.js
 import React, { useState, useEffect } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import {
+  onAuthStateChanged
+} from "firebase/auth";
 import { auth } from "./firebase";
 import Auth from "./Auth";
 import Chat from "./Chat";

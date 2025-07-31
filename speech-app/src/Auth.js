@@ -1,8 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { 
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
 import { auth } from "./firebase";
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
 
-// Basit, tekrar kullanılabilir hata kutusu
 function ErrorMessage({ message }) {
   if (!message) return null;
   return (
@@ -23,20 +27,25 @@ function ErrorMessage({ message }) {
 function Auth({ setUser }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(""); // Hata mesajı state'i
+  const [error, setError] = useState("");
 
-  // Kayıt
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, [setUser]);
+
   const handleSignup = async () => {
-    setError(""); // Önceki hatayı temizle
+    setError("");
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       setUser(auth.currentUser);
     } catch (err) {
-      setError(parseFirebaseError(err)); // Hatayı ekrana bas
+      setError(parseFirebaseError(err));
     }
   };
 
-  // Giriş
   const handleLogin = async () => {
     setError("");
     try {
@@ -47,7 +56,6 @@ function Auth({ setUser }) {
     }
   };
 
-  // Çıkış
   const handleLogout = async () => {
     setError("");
     try {
@@ -65,13 +73,11 @@ function Auth({ setUser }) {
       <button onClick={handleSignup}>Kayıt Ol</button>
       <button onClick={handleLogin}>Giriş Yap</button>
       <button onClick={handleLogout}>Çıkış</button>
-      {/* Hata mesajı varsa göster */}
       <ErrorMessage message={error} />
     </div>
   );
 }
 
-// Firebase hatalarını daha anlaşılır Türkçe mesajlara çevir
 function parseFirebaseError(error) {
   if (!error) return "";
   if (typeof error === "string") return error;
@@ -83,7 +89,7 @@ function parseFirebaseError(error) {
       case "auth/invalid-credential": return "Şifre veya E-posta hatalı.";
       case "auth/user-not-found": return "Kullanıcı bulunamadı.";
       case "auth/wrong-password": return "Şifre yanlış.";
-      case "auth/invalid-api-key": return "API anahtarınız hatalı, lütfen yöneticinizle iletişime geçin.";
+      case "auth/invalid-api-key": return "API anahtarınız hatalı.";
       default: return error.message || "Bir hata oluştu.";
     }
   }
