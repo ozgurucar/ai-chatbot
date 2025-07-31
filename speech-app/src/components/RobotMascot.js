@@ -77,8 +77,8 @@ export default function RobotMascotChat() {
   // Mikrofonu başlatır
   const startListening = () => {
     const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
-      process.env.REACT_APP_AZURE_SPEECH_API_KEY, // anahtar
-      process.env.REACT_APP_AZURE_SPEECH_REGION// region
+      process.env.REACT_APP_AZURE_SPEECH_API_KEY,
+      process.env.REACT_APP_AZURE_SPEECH_REGION
     );
     speechConfig.speechRecognitionLanguage = "tr-TR";
     const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
@@ -137,24 +137,30 @@ export default function RobotMascotChat() {
     };
   }, [recognizer]);
 
-  const createNewChat = async () => {
-    if (!currentUser) return;
+ const createNewChat = async () => {
+  if (!currentUser) return;
 
-    const chatRef = await addDoc(collection(db, "chats"), {
-      uid: currentUser.uid,
-      title: "Yeni Sohbet",
-      createdAt: serverTimestamp()
-    });
+  // Prompt ile başlık iste
+  const title = prompt("Sohbetin adı ne olsun?");
 
-    setSelectedChatId(chatRef.id);
-  };
+  if (!title || !title.trim()) return; // iptal ettiyse veya boşsa eklemesin
+
+  const chatRef = await addDoc(collection(db, "chats"), {
+    uid: currentUser.uid,
+    title: title.trim(),
+    createdAt: serverTimestamp()
+  });
+
+  setSelectedChatId(chatRef.id);
+};
+
   useEffect(() => {
     if (!currentUser) return;
 
     const q = query(
       collection(db, "chats"),
-      where("uid", "==", currentUser.uid),
-      orderBy("createdAt", "desc")
+      where("uid", "==", currentUser.uid)
+      // orderBy yok!
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -162,11 +168,11 @@ export default function RobotMascotChat() {
         id: doc.id,
         ...doc.data()
       }));
+      // Client-side sort by createdAt (desc)
+      chatsData.sort(
+        (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+      );
       setChats(chatsData);
-
-      if (!selectedChatId && chatsData.length > 0) {
-        setSelectedChatId(chatsData[0].id);
-      }
     });
 
     return unsubscribe;
@@ -526,7 +532,9 @@ Bilmediğin sorulara "Bu konuda yardımcı olamıyorum" diye cevap ver.
           display: "flex",
           flexDirection: "column",
           gap: 8,
-          borderRight: "1px solid #333"
+          borderRight: "1px solid #333",
+          height: "100vh",
+          overflowY: "auto"
         }}>
           <button onClick={createNewChat} style={{ marginBottom: 12 }}>➕ Yeni Sohbet</button>
           {chats.map(chat => (
