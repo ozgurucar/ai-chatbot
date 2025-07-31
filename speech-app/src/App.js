@@ -5,7 +5,6 @@ import {
 } from "firebase/auth";
 import { auth } from "./firebase";
 import Auth from "./Auth";
-import Chat from "./Chat";
 import RobotMascotChat from "./components/RobotMascot";
 import ProfilePage from "./components/ProfilePage";
 import { Routes, Route } from "react-router-dom";

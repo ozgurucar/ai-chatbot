@@ -1,0 +1,134 @@
+.container {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(120deg, #27293d 0%, #0f2027 100%);
+  display: flex;
+  flex-direction: row;  
+  gap: 32px;       
+  align-items: flex-start; 
+  justify-content: flex-start;
+  overflow: hidden;
+  box-sizing: border-box;
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+.sidebar {
+  width: 260px;
+  background: #1f2333;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid #333;
+  height: 100vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.sidebarButton {
+  margin-bottom: 12px;
+}
+
+.chatButton {
+  background: #2c2f4a;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 500;
+}
+.chatButtonActive {
+  background: #00cfff;
+  color: #fff;
+}
+
+.mainContent {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.card {
+  background: #222844ee;
+  border-radius: 28px;
+  box-shadow: 0 4px 32px #0005;
+  padding: 32px 24px 24px 24px;
+  max-width: 96vw;
+  width: 420px;
+  min-width: 320px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chatList {
+  width: 100%;
+  max-height: 260px;
+  min-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inputRow {
+  width: 100%;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.input {
+  flex: 1;
+  padding: 11px 16px;
+  font-size: 16px;
+  border-radius: 18px;
+  border: 1.5px solid #2ed3fc;
+  background: #11131a;
+  color: #f7f7f7;
+  outline: none;
+  margin-right: 4px;
+}
+
+.sendBtn {
+  padding: 11px 18px;
+  font-size: 16px;
+  border-radius: 18px;
+  border: none;
+  background: #00cfff;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.13s;
+}
+
+.balloonUser {
+  align-self: flex-end;
+  background: linear-gradient(90deg, #31ffc2 10%, #09afff 90%);
+  color: #052329;
+  border-radius: 16px 18px 2px 18px;
+  padding: 10px 18px;
+  max-width: 85%;
+  font-size: 15px;
+  box-shadow: 0 2px 10px #0032;
+}
+.balloonBot {
+  align-self: flex-start;
+  background: linear-gradient(90deg, #3c4c73 10%, #222844 90%);
+  color: #caf1ff;
+  border-radius: 18px 16px 18px 4px;
+  padding: 10px 18px;
+  max-width: 85%;
+  font-size: 15px;
+  box-shadow: 0 2px 10px #0012;
+}
